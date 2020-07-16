@@ -7,8 +7,8 @@ BASE_IMAGE="java"
 BASE_IMAGE_TAG="8"
 BASE_IMAGE_NAMESPACE="openshift"
 
-BUILD_NAMESPACE="lasse-handson-build"
-DEV_NAMESPACE="lasse-handson-test"
+BUILD_NAMESPACE="le-handson-build"
+DEV_NAMESPACE="le-handson-dev"
 IMAGESTREAM_NAME="demo"
 BUILD_CONFIG_NAME="demo"
 
@@ -62,7 +62,7 @@ pipeline {
                  *  
                  */
 
-                dir('src') {
+                dir('demo') {
                     script {
                         def pom = readMavenPom file: 'pom.xml'
                         DEV_TAG  = "${pom.version}-${currentBuild.number}"
@@ -116,6 +116,7 @@ pipeline {
                             Use the template called imagestream-template.yaml
                          2. Create a new build config, if it doesn't exist
                             Use the template called binary-s2i-template.yaml
+                            A good base image is java:8 in the openshift namespace.
                          3. Start the build, by uploading the content of your ./target folder
                             There's a startBuild function of the buildconfig class. The --wait switch will wait for the build to complete
                          4. When the build is done, tag the newly created image with the version from the POM file.
@@ -146,7 +147,7 @@ pipeline {
 
                             // Get the newly created buildconfig, and start a build:
                             def bc = openshift.selector("bc/${BUILD_CONFIG_NAME}")
-                            bc.startBuild('--from-dir=src/target/', '--wait=true')
+                            bc.startBuild('--from-dir=demo/target/', '--wait=true')
 
                             // Tag the created (:latest) image with the version from the POM file:
                             openshift.tag("${BUILD_NAMESPACE}/${IMAGESTREAM_NAME}:latest", "${BUILD_NAMESPACE}/${IMAGESTREAM_NAME}:${DEV_TAG}")                            
@@ -160,40 +161,29 @@ pipeline {
             steps {
                 /*
                  *  TODO: Do the following:
-                 *  1. Create the deployment config and service, if it doesn't exist
-                 *     Use the template called dc-and-service.yaml
+                 *  1. Create the deployment config and service, if it doesn't exist. 
+                 *     Use the template called dc-and-service.yaml. 
+                 *     The application listens on port 8080, so the service port should be 80, and the target 8080.
                  *  2. Tag the container image with "dev".
                  */
                 script {
                     openshift.withCluster() {
                         openshift.withProject(DEV_NAMESPACE) {
-
-                            // def currentDc = openshift.selector('dc', "${APP_NAME}")
-
-                            // if (currentDc.exists()) {
-                            //     currentDc.rollout().pause()
-                            // }
-
+                            
+                            // Tag the image we created with the dev tag, which is the tag the deployment config is using:
                             openshift.tag("${BUILD_NAMESPACE}/${IMAGESTREAM_NAME}:${DEV_TAG}", "${BUILD_NAMESPACE}/${IMAGESTREAM_NAME}:dev")
 
-                            // def configmap = openshift.selector('configmap', "${APP_NAME}-config")
-                            // if (configmap.exists()) {
-                            //     configmap.delete()
-                            // }
-                            
-                            //configmap = openshift.create('configmap', "${APP_NAME}-config", '--from-file=./src/src/main/resources/application.properties')
-
+                            // Process the deployment config and service template:
                             def dc = openshift.process(readFile(file:'build/dc-and-service.yaml'),
                                                 '-p', "APPNAME=${APP_NAME}",
                                                 '-p', "IMAGESTREAMNAMESPACE=${BUILD_NAMESPACE}",
                                                 '-p', "IMAGESTREAM=${IMAGESTREAM_NAME}",
                                                 '-p', "IMAGESTREAMTAG=dev",
-                                                '-p', "SERVICEPORT=8080",
+                                                '-p', "SERVICEPORT=80",
                                                 '-p', "SERVICETARGETPORT=8080")
 
+                            // Apply the changes:
                             openshift.apply(dc)
-
-                            openshift.selector('dc', "${APP_NAME}").rollout().resume()
                         }
                     }
                 }
